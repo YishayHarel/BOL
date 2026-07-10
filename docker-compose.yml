@@ -1,0 +1,11 @@
+services:
+  bol-splitter:
+    build: .
+    volumes:
+      # Drop the scanned batch(es) here, edit candidates.json, read results from output/.
+      - ./input:/data/input
+      - ./output:/data/output
+      - ./candidates.json:/app/candidates.json:ro
+    # Override the batch filename at run time, e.g.:
+    #   docker compose run --rm bol-splitter /data/input/batch.pdf --out-dir /data/output
+    command: ["/data/input/batch.pdf", "--out-dir", "/data/output"]

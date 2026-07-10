@@ -1,0 +1,16 @@
+{
+  "_comment": "Placeholder list until Joseph provides the real candidates. 'companies' = Shipping From, 'customers' = Ship To. Copy this file to candidates.json and edit. Fuzzy matching normalizes OCR variants (e.g. 'T.J.MAXX DC # 897' -> 'TJ Maxx').",
+  "companies": [
+    "FitForLife c/o Rialto Distribution LLC"
+  ],
+  "customers": [
+    "Walmart",
+    "TJ Maxx",
+    "Ross",
+    "Burlington",
+    "Winners",
+    "Bealls Outlet",
+    "Gabe's"
+  ],
+  "fuzzy_threshold": 80
+}

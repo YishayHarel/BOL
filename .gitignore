@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Local runtime folders
+input/
+output/
+
+# Real batches / client data — never commit (public repo)
+samples/*.pdf
+*.pdf
+
+# Real candidate list (has actual vendor names); commit only the example
+candidates.json
+
+# Claude Code local settings
+.claude/settings.local.json
