@@ -1,7 +1,8 @@
 """A tiny local web UI for the BOL splitter.
 
 Tab 1: pick one or more scanned batch PDFs and press Split.
-Tab 2: the resulting individual BOLs, grouped by input file, with download links.
+Tab 2: the resulting individual BOLs, laid out in their folder tree
+       (Company / Customer / Year / Month), each with a download link.
 
 Runs the same pipeline as the CLI. Local, single-user, no external resources.
 Start with:  docker compose up ui   → open http://localhost:8000
@@ -23,7 +24,8 @@ OUT_DIR = os.environ.get("BOL_OUTPUT", "/data/output")
 CANDIDATES = os.environ.get("BOL_CANDIDATES", "candidates.json")
 STORE_INDEX = os.environ.get("BOL_STORE_INDEX", "store_index.json")
 
-_last_batches: list = []  # most recent results, for the Results tab
+# Most recent run, for the Results tab.
+_view = {"folders": {}, "total": 0, "review_total": 0, "inputs": []}
 
 PAGE = """
 <!doctype html><html><head><meta charset="utf-8"><title>BOL Splitter</title>
@@ -33,17 +35,18 @@ PAGE = """
   .tabs{display:flex;gap:4px;background:#fff;border-bottom:1px solid #e2e6ea;padding:0 24px}
   .tab{padding:14px 18px;cursor:pointer;border-bottom:3px solid transparent;font-weight:500;color:#5b6570}
   .tab.active{color:#1d3557;border-bottom-color:#1d3557}
-  .panel{display:none;padding:28px 24px;max-width:1000px}
+  .panel{display:none;padding:28px 24px;max-width:1040px}
   .panel.active{display:block}
   .drop{border:2px dashed #b9c2cc;border-radius:10px;padding:40px;text-align:center;background:#fff}
   input[type=file]{margin:14px 0}
   button{background:#1d3557;color:#fff;border:0;border-radius:8px;padding:12px 22px;font-size:15px;cursor:pointer}
   button:hover{background:#264d80}
-  .file-group{background:#fff;border:1px solid #e2e6ea;border-radius:10px;margin-bottom:18px;overflow:hidden}
-  .file-group h3{margin:0;padding:14px 18px;background:#f0f3f6;font-size:15px}
-  .file-group h3 .meta{font-weight:400;color:#5b6570;font-size:13px}
+  .summary{color:#5b6570;margin:0 0 18px}
+  .folder{background:#fff;border:1px solid #e2e6ea;border-radius:10px;margin-bottom:16px;overflow:hidden}
+  .folder-name{padding:12px 16px;background:#eef2f6;font-weight:600;font-size:14px}
+  .folder-name .rev-hdr{color:#a5590a}
   table{width:100%;border-collapse:collapse}
-  td,th{padding:10px 18px;text-align:left;border-top:1px solid #eef1f4;font-size:14px}
+  td,th{padding:9px 16px;text-align:left;border-top:1px solid #eef1f4;font-size:14px}
   th{color:#5b6570;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
   .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
   .ok{background:#e3f4e8;color:#1d7a3a}.rev{background:#fdeede;color:#a5590a}
@@ -54,7 +57,7 @@ PAGE = """
 <div class="tabs">
   <div class="tab {{ 'active' if tab=='upload' else '' }}" onclick="show('upload')">Upload</div>
   <div class="tab {{ 'active' if tab=='results' else '' }}" onclick="show('results')">
-    Results {% if batches %}({{ batches|sum(attribute='doc_count') }}){% endif %}
+    Results {% if view.total %}({{ view.total }}){% endif %}
   </div>
 </div>
 
@@ -69,15 +72,22 @@ PAGE = """
 </div>
 
 <div id="results" class="panel {{ 'active' if tab=='results' else '' }}">
-  {% if not batches %}<p class="empty">No results yet — upload files on the Upload tab.</p>{% endif %}
-  {% for b in batches %}
-    <div class="file-group">
-      <h3>{{ b.name }} <span class="meta">— {{ b.doc_count }} document(s), {{ b.review_count }} need review</span></h3>
+  {% if not view.total %}<p class="empty">No results yet — upload files on the Upload tab.</p>{% endif %}
+  {% if view.total %}
+    <p class="summary">{{ view.total }} file(s) from {{ view.inputs|length }} batch(es)
+       — {{ view.review_total }} need review</p>
+  {% endif %}
+  {% for folder, files in view.folders.items() %}
+    <div class="folder">
+      <div class="folder-name">
+        {% if folder.startswith('Needs Review') %}<span class="rev-hdr">⚠️ {{ folder }}</span>
+        {% else %}📁 {{ folder }}{% endif %}
+      </div>
       <table>
-        <tr><th>Pages</th><th>Company</th><th>Customer</th><th>Date</th><th>Status</th><th>File</th></tr>
-        {% for d in b.docs %}
+        <tr><th>File</th><th>Pages</th><th>Date</th><th>Status</th><th></th></tr>
+        {% for d in files %}
         <tr>
-          <td>{{ d.pages }}</td><td>{{ d.company or '—' }}</td><td>{{ d.customer }}</td><td>{{ d.date or '—' }}</td>
+          <td>📄 {{ d.name }}</td><td>{{ d.pages }}</td><td>{{ d.date or '—' }}</td>
           <td>{% if d.needs_review %}<span class="badge rev">Needs review</span>{% else %}<span class="badge ok">Filed</span>{% endif %}</td>
           <td><a class="dl" href="/file?p={{ d.rel|urlencode }}">download</a></td>
         </tr>
@@ -96,7 +106,7 @@ const tabs=document.querySelectorAll('.tab');tabs[0].classList.toggle('active',t
 
 
 def _render(tab):
-    return render_template_string(PAGE, tab=tab, batches=_last_batches)
+    return render_template_string(PAGE, tab=tab, view=_view)
 
 
 @app.route("/")
@@ -110,36 +120,39 @@ def split():
     candidates = load_candidates(CANDIDATES)
     matcher = StoreMatcher(STORE_INDEX)
 
-    batches = []
+    folders: dict[str, list] = {}
+    inputs: list[str] = []
+    total = review_total = 0
+
     for f in request.files.getlist("files"):
         if not f.filename:
             continue
+        inputs.append(f.filename)
         tmp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4().hex}.pdf")
         f.save(tmp)
         try:
             result = process_batch(tmp, OUT_DIR, candidates, matcher)
         finally:
             os.remove(tmp)
-        docs = [
-            {
+
+        for d in result.documents:
+            rel = os.path.relpath(d.output_path, OUT_DIR)
+            folder = os.path.dirname(rel).replace(os.sep, " / ") or "."
+            folders.setdefault(folder, []).append({
+                "name": os.path.basename(rel),
                 "pages": f"{d.source_pages[0]}-{d.source_pages[-1]}",
-                "company": d.company,
-                "customer": d.customer,
                 "date": d.date,
                 "needs_review": d.needs_review,
-                "rel": os.path.relpath(d.output_path, OUT_DIR),
-            }
-            for d in result.documents
-        ]
-        batches.append({
-            "name": f.filename,
-            "doc_count": len(docs),
-            "review_count": sum(1 for d in result.documents if d.needs_review),
-            "docs": docs,
-        })
+                "rel": rel,
+            })
+            total += 1
+            review_total += 1 if d.needs_review else 0
 
-    global _last_batches
-    _last_batches = batches
+    # Clean folders first (alphabetical), Needs Review last.
+    ordered = dict(sorted(folders.items(), key=lambda kv: (kv[0].startswith("Needs Review"), kv[0])))
+
+    global _view
+    _view = {"folders": ordered, "total": total, "review_total": review_total, "inputs": inputs}
     return _render("results")
 
 
