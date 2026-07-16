@@ -16,15 +16,24 @@ def sanitize(value: str) -> str:
     return value
 
 
-def month_folder(date: Optional[str]) -> Optional[str]:
-    """'7/6/2026' -> '2026-07' (used to file by month, not by day)."""
+def year_month(date: Optional[str]) -> Optional[tuple[str, str]]:
+    """'7/6/2026' -> ('2026', '07'). Returns None if the date is unreadable."""
     if not date:
         return None
     match = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", date.strip())
     if not match:
         return None
     month, _day, year = match.groups()
-    return f"{year}-{int(month):02d}"
+    return year, f"{int(month):02d}"
+
+
+def folder_path(out_dir: str, company_abbrev: str, customer: str, date: Optional[str]) -> Optional[str]:
+    """Company / Customer / YEAR / MONTH. None if the date can't be read."""
+    ym = year_month(date)
+    if ym is None:
+        return None
+    year, month = ym
+    return os.path.join(out_dir, sanitize(company_abbrev), sanitize(customer), year, month)
 
 
 def _filename_date(date: Optional[str]) -> str:

@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.DS_Store
 .venv/
 venv/
 .env
@@ -14,6 +15,11 @@ samples/*.pdf
 
 # Real candidate list (has actual vendor names); commit only the example
 candidates.json
+
+# Store dump + generated index (client data — never commit)
+store_index.json
+*.xlsx
+data/
 
 # Claude Code local settings
 .claude/settings.local.json

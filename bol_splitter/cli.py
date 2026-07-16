@@ -3,6 +3,7 @@ import sys
 
 from .config import load_candidates
 from .pipeline import process_batch
+from .store_lookup import StoreMatcher
 
 
 def main() -> None:
@@ -12,11 +13,14 @@ def main() -> None:
     parser.add_argument("pdf_path", help="Path to the scanned batch PDF")
     parser.add_argument("--out-dir", default="output", help="Directory to write results into")
     parser.add_argument("--candidates", default="candidates.json", help="Path to candidate name list JSON")
+    parser.add_argument("--store-index", default="store_index.json", help="Path to store->bucket index JSON")
     parser.add_argument("--dpi", type=int, default=300, help="OCR render DPI")
     args = parser.parse_args()
 
     candidates = load_candidates(args.candidates)
-    results = process_batch(args.pdf_path, args.out_dir, candidates, dpi=args.dpi)
+    store_matcher = StoreMatcher(args.store_index)
+    batch = process_batch(args.pdf_path, args.out_dir, candidates, store_matcher, dpi=args.dpi)
+    results = batch.documents
 
     print(f"\nSplit into {len(results)} document(s):\n")
     for r in results:

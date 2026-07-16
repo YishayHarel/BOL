@@ -1,16 +1,18 @@
 {
-  "_comment": "Placeholder list until Joseph provides the real candidates. 'companies' = Shipping From, 'customers' = Ship To. Copy this file to candidates.json and edit. Fuzzy matching normalizes OCR variants (e.g. 'T.J.MAXX DC # 897' -> 'TJ Maxx').",
+  "_comment": "The three things scraped: 'companies' = who it was bought from (Shipping From), 'customers' = who it was sold to (Ship To), plus the Date (read automatically, not listed here). Copy this file to candidates.json and edit. Fuzzy matching normalizes OCR variants (e.g. 'T.J.MAXX DC # 897' -> 'TJ Maxx'). Confirm exact printed spellings against a real sample.",
   "companies": [
-    "FitForLife c/o Rialto Distribution LLC"
+    "FitForLife",
+    "Supply Accessories",
+    "Capture Accessories"
   ],
   "customers": [
     "Walmart",
+    "MarMaxx",
     "TJ Maxx",
     "Ross",
     "Burlington",
     "Winners",
-    "Bealls Outlet",
-    "Gabe's"
+    "Bealls Outlet"
   ],
   "fuzzy_threshold": 80
 }
