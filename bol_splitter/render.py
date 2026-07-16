@@ -1,14 +1,26 @@
-"""Render PDF pages to images for OCR only.
+"""Render PDF pages to images for OCR — one page at a time to stay low-memory.
 
-Uses pdf2image (MIT) + Poppler (invoked as a subprocess binary). The rendered
-images are fed to Tesseract; the actual PDF splitting/merging is done separately
-by pypdf against the original file, so no image quality is lost in the output.
+Loading every page of a 60-page scan at 300 DPI at once uses enough RAM to get
+the container OOM-killed, so we render and hand back a single page at a time and
+let the caller discard each image before the next is produced.
 """
 
-from pdf2image import convert_from_path
+from collections.abc import Iterator
+
+from pdf2image import convert_from_path, pdfinfo_from_path
 from PIL import Image
 
 
+def page_count(pdf_path: str) -> int:
+    return int(pdfinfo_from_path(pdf_path)["Pages"])
+
+
+def iter_pages(pdf_path: str, dpi: int = 300) -> Iterator[Image.Image]:
+    for p in range(1, page_count(pdf_path) + 1):
+        images = convert_from_path(pdf_path, dpi=dpi, first_page=p, last_page=p)
+        yield images[0]
+
+
 def render_pages(pdf_path: str, dpi: int = 300) -> list[Image.Image]:
-    # 300 DPI is the sweet spot for Tesseract accuracy on printed forms.
-    return convert_from_path(pdf_path, dpi=dpi)
+    # Kept for ad-hoc use; the pipeline uses iter_pages to bound memory.
+    return list(iter_pages(pdf_path, dpi=dpi))

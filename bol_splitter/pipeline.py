@@ -16,7 +16,7 @@ from .naming import (
 )
 from .ocr import ocr_date_region, ocr_title_band, ocr_top
 from .parse import parse_date, parse_page
-from .render import render_pages
+from .render import iter_pages
 from .split import build_groups
 from .store_lookup import StoreMatcher
 from .writer import write_pages
@@ -45,13 +45,13 @@ def process_batch(
     store_matcher: StoreMatcher,
     dpi: int = 300,
 ) -> BatchResult:
-    images = render_pages(pdf_path, dpi=dpi)
     page_fields = []
-    for img in images:
+    for img in iter_pages(pdf_path, dpi=dpi):  # one page in memory at a time
         pf = parse_page(ocr_top(img), ocr_title_band(img))
         if pf.date is None:  # fallback: zoomed OCR of the date corner
             pf.date = parse_date(ocr_date_region(img))
         page_fields.append(pf)
+        img.close()
     groups = build_groups(page_fields)
 
     results: list[DocumentResult] = []
