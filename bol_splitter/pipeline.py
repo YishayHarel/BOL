@@ -14,8 +14,8 @@ from .naming import (
     folder_path,
     unique_path,
 )
-from .ocr import ocr_date_region, ocr_title_band, ocr_top
-from .parse import parse_date, parse_page
+from .ocr import date_region_texts, ocr_title_band, ocr_top
+from .parse import majority_date, parse_page
 from .render import iter_pages
 from .split import build_groups
 from .store_lookup import StoreMatcher
@@ -48,8 +48,8 @@ def process_batch(
     page_fields = []
     for img in iter_pages(pdf_path, dpi=dpi):  # one page in memory at a time
         pf = parse_page(ocr_top(img), ocr_title_band(img))
-        if pf.date is None:  # fallback: zoomed OCR of the date corner
-            pf.date = parse_date(ocr_date_region(img))
+        if pf.date is None:  # fallback: ensemble OCR of the date corner + majority vote
+            pf.date = majority_date(date_region_texts(img))
         page_fields.append(pf)
         img.close()
     groups = build_groups(page_fields)

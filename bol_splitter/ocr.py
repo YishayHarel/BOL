@@ -14,13 +14,25 @@ def ocr_page(image: Image.Image) -> str:
     return pytesseract.image_to_string(_prep(image))
 
 
-def ocr_date_region(image: Image.Image, top: float = 0.14, left: float = 0.45) -> str:
-    """Zoomed, cleaned OCR of the top-left corner where 'DATE:' lives — a
-    fallback when the date can't be read from the normal top crop."""
+def date_region_texts(image: Image.Image, left: float = 0.55) -> list[str]:
+    """Ensemble OCR of the top-left corner where 'DATE:' lives — a fallback when
+    the date can't be read from the normal top crop.
+
+    The 'DATE:' line sits in a thin strip just above the black 'SHIPPING FROM'
+    bar. Tesseract is very sensitive to the exact crop height and segmentation
+    mode here — the same legible date reads correctly at one combination and
+    fails at another. So we OCR several crop heights x several modes and return
+    every result; the caller takes the majority date across them, which is far
+    more stable than any single read.
+    """
     width, height = image.size
-    crop = image.crop((0, 0, int(width * left), int(height * top)))
-    crop = _prep(crop).resize((crop.width * 3, crop.height * 3), Image.LANCZOS)
-    return pytesseract.image_to_string(crop, config="--psm 6")
+    texts = []
+    for top in (0.11, 0.13, 0.15):
+        crop = image.crop((0, 0, int(width * left), int(height * top)))
+        crop = _prep(crop).resize((crop.width * 3, crop.height * 3), Image.LANCZOS)
+        for psm in (6, 4, 3, 11):
+            texts.append(pytesseract.image_to_string(crop, config=f"--psm {psm}"))
+    return texts
 
 
 def ocr_title_band(image: Image.Image, fraction: float = 0.20) -> str:

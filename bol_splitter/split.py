@@ -79,8 +79,9 @@ def validate_group(group: DocumentGroup) -> list[str]:
         warnings.append(
             "document does not start on a readable '(MASTER) BILL OF LADING' title page"
         )
-    if group.first.date is None:
-        warnings.append("date unreadable on first page")
+    # NOTE: the date is validated in the pipeline against the FINAL resolved date
+    # (after recovering it from other pages in the group), not here — otherwise a
+    # document whose date was recovered would be wrongly flagged for review.
     return warnings
 
 

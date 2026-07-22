@@ -56,6 +56,17 @@ def parse_date(text: str) -> Optional[str]:
     return _normalize_date(m.group(1)) if m else None
 
 
+def majority_date(texts: list[str]) -> Optional[str]:
+    """Given several OCR reads of the date region, return the date the most
+    reads agree on — so a lone misread (e.g. a 3 read as a 9) can't win."""
+    from collections import Counter
+
+    candidates = [d for t in texts if (d := parse_date(t))]
+    if not candidates:
+        return None
+    return Counter(candidates).most_common(1)[0][0]
+
+
 def _extract_ship_to(top_text: str) -> Optional[str]:
     """Best-effort: find the NAME value inside the SHIP TO block."""
     lines = [ln.strip() for ln in top_text.splitlines()]
@@ -101,6 +112,6 @@ def parse_page(top_text: str, title_text: str) -> PageFields:
         page_current=int(page_match.group(1)) if page_match else None,
         page_total=int(page_match.group(2)) if page_match else None,
         more_pages_attached=bool(_MORE_PAGES_RE.search(top_text)),
-        date=parse_date(top_text),
+        date=parse_date(top_text) or parse_date(title_text),
         top_text=top_text,
     )
