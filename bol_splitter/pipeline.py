@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
 from typing import Optional
@@ -25,19 +26,47 @@ from .store_lookup import StoreMatcher
 from .writer import write_pages
 
 
-def _repair_pdf(src: str) -> str:
-    """Rebuild a malformed PDF (broken xref/trailer that some scanners produce)
-    by reading it leniently with pypdf and re-writing a clean copy that Poppler
-    can then render. Returns the path to the repaired temp file."""
-    reader = PdfReader(src, strict=False)
-    writer = PdfWriter()
-    for page in reader.pages:
-        writer.add_page(page)
-    fd, dst = tempfile.mkstemp(suffix=".pdf")
+def _new_tmp() -> str:
+    fd, path = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
-    with open(dst, "wb") as f:
-        writer.write(f)
-    return dst
+    return path
+
+
+def _repair_pdf(src: str) -> str:
+    """Rebuild a malformed PDF (broken xref/trailer some scanners produce) into a
+    clean copy Poppler can render. Tries pypdf first (fast, fixes complete-but-
+    malformed files), then Ghostscript (recovers more damaged files). Raises if
+    neither produces a readable PDF (e.g. a truncated file with no intact data).
+    Returns the repaired temp path."""
+    # 1) pypdf — rebuilds the xref for complete-but-malformed files.
+    dst = _new_tmp()
+    try:
+        reader = PdfReader(src, strict=False)
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        with open(dst, "wb") as f:
+            writer.write(f)
+        page_count(dst)  # confirm Poppler can now read it
+        return dst
+    except Exception:
+        if os.path.exists(dst):
+            os.remove(dst)
+
+    # 2) Ghostscript — heavier recovery; salvages what intact data remains.
+    dst = _new_tmp()
+    subprocess.run(
+        ["gs", "-o", dst, "-sDEVICE=pdfwrite", "-dPDFSTOPONERROR=false", "-dQUIET",
+         "-dBATCH", "-dNOPAUSE", src],
+        check=False, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        page_count(dst)  # raises if gs produced nothing usable
+        return dst
+    except Exception:
+        if os.path.exists(dst):
+            os.remove(dst)
+        raise ValueError("PDF is damaged and could not be repaired (file may be truncated)")
 
 
 @dataclass
