@@ -31,7 +31,7 @@ CANDIDATES = os.environ.get("BOL_CANDIDATES", "candidates.json")
 STORE_INDEX = os.environ.get("BOL_STORE_INDEX", "store_index.json")
 
 _view = {"folders": {}, "total": 0, "filed": 0, "review_total": 0,
-         "inputs": [], "manifest": None, "error": None}
+         "inputs": [], "manifest": None, "errors": [], "error": None}
 
 PAGE = """
 <!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -103,8 +103,11 @@ PAGE = """
 
   <div id="output" class="panel {{ 'active' if tab=='output' else '' }}">
     {% if view.error %}<div class="err">{{ view.error }}</div>
-    {% elif not view.total %}<p class="empty">No output yet — add files and press Run.</p>
+    {% elif not view.total and not view.errors %}<p class="empty">No output yet — add files and press Run.</p>
     {% else %}
+      {% if view.errors %}<div class="err"><b>Couldn't read {{ view.errors|length }} file(s):</b>
+        {% for e in view.errors %}<div>• {{ e.name }} — {{ e.msg }}</div>{% endfor %}</div>{% endif %}
+      {% if view.total %}
       <div class="stats">
         <div class="stat"><b>{{ view.total }}</b><span>files split</span></div>
         <div class="stat"><b>{{ view.filed }}</b><span>filed</span></div>
@@ -124,6 +127,7 @@ PAGE = """
           {% endfor %}
         </div>
       {% endfor %}
+      {% endif %}
     {% endif %}
   </div>
 </div>
@@ -185,6 +189,7 @@ def split():
 
         folders: dict[str, list] = {}
         inputs: list[str] = []
+        errors: list[dict] = []
         total = filed = review_total = 0
 
         for f in request.files.getlist("files"):
@@ -195,8 +200,12 @@ def split():
             f.save(tmp)
             try:
                 result = process_batch(tmp, OUT_DIR, candidates, matcher)
+            except Exception as e:  # one bad file shouldn't fail the whole run
+                errors.append({"name": f.filename, "msg": str(e).splitlines()[0][:160]})
+                continue
             finally:
-                os.remove(tmp)
+                if os.path.exists(tmp):
+                    os.remove(tmp)
 
             for d in result.documents:
                 rel = os.path.relpath(d.output_path, OUT_DIR)
@@ -213,10 +222,10 @@ def split():
         ordered = dict(sorted(folders.items(), key=lambda kv: (kv[0].startswith("Needs Review"), kv[0])))
         manifest = "manifest.json" if os.path.isfile(os.path.join(OUT_DIR, "manifest.json")) else None
         _view = {"folders": ordered, "total": total, "filed": filed, "review_total": review_total,
-                 "inputs": inputs, "manifest": manifest, "error": None}
+                 "inputs": inputs, "manifest": manifest, "errors": errors, "error": None}
     except Exception as e:
         _view = {"folders": {}, "total": 0, "filed": 0, "review_total": 0,
-                 "inputs": [], "manifest": None, "error": f"Something went wrong: {e}"}
+                 "inputs": [], "manifest": None, "errors": [], "error": f"Something went wrong: {e}"}
     return _render("output")
 
 

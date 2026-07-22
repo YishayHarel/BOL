@@ -2,8 +2,11 @@
 
 import json
 import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from typing import Optional
+
+from pypdf import PdfReader, PdfWriter
 
 from .buckets import company_abbrev
 from .config import Candidates
@@ -16,10 +19,25 @@ from .naming import (
 )
 from .ocr import date_region_texts, ocr_title_band, ocr_top
 from .parse import majority_date, parse_page
-from .render import iter_pages
+from .render import iter_pages, page_count
 from .split import build_groups
 from .store_lookup import StoreMatcher
 from .writer import write_pages
+
+
+def _repair_pdf(src: str) -> str:
+    """Rebuild a malformed PDF (broken xref/trailer that some scanners produce)
+    by reading it leniently with pypdf and re-writing a clean copy that Poppler
+    can then render. Returns the path to the repaired temp file."""
+    reader = PdfReader(src, strict=False)
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    fd, dst = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
+    with open(dst, "wb") as f:
+        writer.write(f)
+    return dst
 
 
 @dataclass
@@ -45,14 +63,35 @@ def process_batch(
     store_matcher: StoreMatcher,
     dpi: int = 300,
 ) -> BatchResult:
-    page_fields = []
-    for img in iter_pages(pdf_path, dpi=dpi):  # one page in memory at a time
-        pf = parse_page(ocr_top(img), ocr_title_band(img))
-        if pf.date is None:  # fallback: ensemble OCR of the date corner + majority vote
-            pf.date = majority_date(date_region_texts(img))
-        page_fields.append(pf)
-        img.close()
-    groups = build_groups(page_fields)
+    # If the PDF is malformed (broken xref/trailer), repair it to a clean copy
+    # so Poppler can render it; use that copy for both rendering and splitting.
+    work_path = pdf_path
+    repaired = None
+    try:
+        page_count(work_path)
+    except Exception:
+        repaired = _repair_pdf(pdf_path)
+        work_path = repaired
+
+    try:
+        page_fields = []
+        for img in iter_pages(work_path, dpi=dpi):  # one page in memory at a time
+            pf = parse_page(ocr_top(img), ocr_title_band(img))
+            if pf.date is None:  # fallback: ensemble OCR of the date corner + majority vote
+                pf.date = majority_date(date_region_texts(img))
+            page_fields.append(pf)
+            img.close()
+        groups = build_groups(page_fields)
+        results = _split_and_file(work_path, out_dir, candidates, store_matcher, groups)
+    finally:
+        if repaired and os.path.exists(repaired):
+            os.remove(repaired)
+
+    _write_manifest(out_dir, pdf_path, results)
+    return BatchResult(documents=results)
+
+
+def _split_and_file(work_path, out_dir, candidates, store_matcher, groups):
 
     results: list[DocumentResult] = []
     for group in groups:
@@ -81,7 +120,7 @@ def process_batch(
 
         filename = build_filename(abbrev, bucket, date)
         output_path = unique_path(target_dir, filename)
-        write_pages(pdf_path, group.page_indices, output_path)
+        write_pages(work_path, group.page_indices, output_path)
 
         results.append(
             DocumentResult(
@@ -95,8 +134,7 @@ def process_batch(
             )
         )
 
-    _write_manifest(out_dir, pdf_path, results)
-    return BatchResult(documents=results)
+    return results
 
 
 def _write_manifest(out_dir: str, pdf_path: str, results: list[DocumentResult]) -> None:
