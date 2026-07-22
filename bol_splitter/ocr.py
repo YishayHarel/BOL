@@ -55,5 +55,11 @@ def ocr_top(image: Image.Image, fraction: float = 0.45) -> str:
     reduces noise from the freight tables below.
     """
     width, height = image.size
-    top = image.crop((0, 0, width, int(height * fraction)))
-    return pytesseract.image_to_string(_prep(top))
+    top = _prep(image.crop((0, 0, width, int(height * fraction))))
+    text = pytesseract.image_to_string(top)
+    # Default segmentation (PSM 3) sometimes returns nothing on MASTER pages with
+    # a large order table — retry with a single-block mode so the SHIPPING FROM /
+    # SHIP TO names are read and company/customer can be matched.
+    if len(text.strip()) < 20:
+        text = pytesseract.image_to_string(top, config="--psm 6")
+    return text

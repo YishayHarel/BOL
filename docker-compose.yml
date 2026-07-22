@@ -14,6 +14,7 @@ services:
   ui:
     build: .
     entrypoint: ["python", "-m", "bol_splitter.web"]
+    mem_limit: 4g
     ports:
       - "8000:8000"
     volumes:

@@ -10,6 +10,7 @@ Local, single-user, no external resources.
 Start with:  docker compose up ui   → open http://localhost:8000
 """
 
+import json
 import os
 import shutil
 import tempfile
@@ -70,6 +71,7 @@ PAGE = """
   .row{display:grid;grid-template-columns:1fr 90px 110px 120px 90px;gap:10px;align-items:center;padding:11px 18px;border-top:1px solid #f0f3f6;font-size:14px}
   .row.head{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
   .fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .why{font-size:12px;color:#a5590a;font-weight:400;white-space:normal;margin-top:3px}
   .badge{justify-self:start;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
   .ok{background:#e3f4e8;color:#1d7a3a}.rev{background:#fdeede;color:#a5590a}
   a.dl{color:var(--navy);font-weight:600;text-decoration:none}a.dl:hover{text-decoration:underline}
@@ -120,7 +122,9 @@ PAGE = """
           <div class="row head"><div>File</div><div>Pages</div><div>Date</div><div>Status</div><div></div></div>
           {% for d in files %}
           <div class="row">
-            <div class="fname" title="{{ d.name }}">{{ d.name }}</div><div>{{ d.pages }}</div><div>{{ d.date or '—' }}</div>
+            <div class="fname" title="{{ d.name }}">{{ d.name }}
+              {% if d.needs_review and d.reasons %}<div class="why">{{ d.reasons|join('; ') }}</div>{% endif %}
+            </div><div>{{ d.pages }}</div><div>{{ d.date or '—' }}</div>
             <div>{% if d.needs_review %}<span class="badge rev">Needs review</span>{% else %}<span class="badge ok">Filed</span>{% endif %}</div>
             <div><a class="dl" href="/file?p={{ d.rel|urlencode }}">download</a></div>
           </div>
@@ -190,6 +194,7 @@ def split():
         folders: dict[str, list] = {}
         inputs: list[str] = []
         errors: list[dict] = []
+        manifest_docs: list[dict] = []
         total = filed = review_total = 0
 
         for f in request.files.getlist("files"):
@@ -213,16 +218,27 @@ def split():
                 folders.setdefault(folder, []).append({
                     "name": os.path.basename(rel),
                     "pages": f"{d.source_pages[0]}-{d.source_pages[-1]}",
-                    "date": d.date, "needs_review": d.needs_review, "rel": rel,
+                    "date": d.date, "needs_review": d.needs_review,
+                    "reasons": d.reasons, "rel": rel,
+                })
+                manifest_docs.append({
+                    "source": f.filename, "output_file": rel, "pages": d.source_pages,
+                    "company": d.company, "customer": d.customer, "date": d.date,
+                    "needs_review": d.needs_review, "reasons": d.reasons,
                 })
                 total += 1
                 filed += 0 if d.needs_review else 1
                 review_total += 1 if d.needs_review else 0
 
+        # One manifest for the whole run (process_batch writes one per file; overwrite
+        # it here with the combined log so nothing is lost across multiple uploads).
+        with open(os.path.join(OUT_DIR, "manifest.json"), "w") as mf:
+            json.dump({"document_count": total, "needs_review_count": review_total,
+                       "errors": errors, "documents": manifest_docs}, mf, indent=2)
+
         ordered = dict(sorted(folders.items(), key=lambda kv: (kv[0].startswith("Needs Review"), kv[0])))
-        manifest = "manifest.json" if os.path.isfile(os.path.join(OUT_DIR, "manifest.json")) else None
         _view = {"folders": ordered, "total": total, "filed": filed, "review_total": review_total,
-                 "inputs": inputs, "manifest": manifest, "errors": errors, "error": None}
+                 "inputs": inputs, "manifest": "manifest.json", "errors": errors, "error": None}
     except Exception as e:
         _view = {"folders": {}, "total": 0, "filed": 0, "review_total": 0,
                  "inputs": [], "manifest": None, "errors": [], "error": f"Something went wrong: {e}"}
