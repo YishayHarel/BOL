@@ -144,7 +144,7 @@ def _split_and_file(work_path, out_dir, candidates, store_matcher, groups):
         if needs_review:
             target_dir = os.path.join(out_dir, NEEDS_REVIEW_DIR)
         else:
-            target_dir = folder_path(out_dir, bucket, date)
+            target_dir = folder_path(out_dir, abbrev, bucket, date)
         os.makedirs(target_dir, exist_ok=True)
 
         filename = build_filename(abbrev, bucket, date)

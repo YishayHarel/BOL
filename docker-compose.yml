@@ -9,15 +9,3 @@ services:
     # Override the batch filename at run time, e.g.:
     #   docker compose run --rm bol-splitter /data/input/batch.pdf --out-dir /data/output
     command: ["/data/input/batch.pdf", "--out-dir", "/data/output"]
-
-  # Local web UI:  docker compose up ui   → open http://localhost:8000
-  ui:
-    build: .
-    entrypoint: ["python", "-m", "bol_splitter.web"]
-    mem_limit: 4g
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./candidates.json:/app/candidates.json:ro
-      - ./store_index.json:/app/store_index.json:ro
-      - ./output:/data/output
